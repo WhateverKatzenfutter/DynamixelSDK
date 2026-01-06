@@ -30,6 +30,16 @@
 
 #include "port_handler_linux.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+#define DIR_GPIO_NUM 594
+#define DIR_GPIO_PATH "/sys/class/gpio/gpio594"
+#define DIR_GPIO_EXPORT "/sys/class/gpio/export"
+#define DIR_GPIO_DIRECTION "/sys/class/gpio/gpio594/direction"
+#define DIR_GPIO_VALUE "/sys/class/gpio/gpio594/value"
+
 #define LATENCY_TIMER  16  // msec (USB latency timer)
                            // You should adjust the latency timer value. From the version Ubuntu 16.04.2, the default latency timer of the usb serial is '16 msec'.
                            // When you are going to use sync / bulk read, the latency timer should be loosen.
@@ -83,10 +93,61 @@ PortHandlerLinux::PortHandlerLinux(const char *port_name)
     baudrate_(DEFAULT_BAUDRATE_),
     packet_start_time_(0.0),
     packet_timeout_(0.0),
-    tx_time_per_byte(0.0)
+    tx_time_per_byte(0.0),
+    dir_gpio_fd_(-1)
 {
   is_using_ = false;
   setPortName(port_name);
+}
+
+void PortHandlerLinux::initDirGpio()
+{
+  if (dir_gpio_fd_ >= 0)
+    return;
+
+  struct stat st;
+  if (stat(DIR_GPIO_PATH, &st) != 0)
+  {
+    int efd = open(DIR_GPIO_EXPORT, O_WRONLY);
+    if (efd >= 0)
+    {
+      const char *num = "594";
+      write(efd, num, 3);
+      close(efd);
+    }
+  }
+
+  int dfd = open(DIR_GPIO_DIRECTION, O_WRONLY);
+  if (dfd >= 0)
+  {
+    const char *out = "out";
+    write(dfd, out, 3);
+    close(dfd);
+  }
+
+  dir_gpio_fd_ = open(DIR_GPIO_VALUE, O_WRONLY);
+}
+
+void PortHandlerLinux::setDirTx()
+{
+  if (dir_gpio_fd_ < 0)
+    initDirGpio();
+  if (dir_gpio_fd_ >= 0)
+  {
+    lseek(dir_gpio_fd_, 0, SEEK_SET);
+    write(dir_gpio_fd_, "0", 1);   // 0 = TX enable
+  }
+}
+
+void PortHandlerLinux::setDirRx()
+{
+  if (dir_gpio_fd_ < 0)
+    initDirGpio();
+  if (dir_gpio_fd_ >= 0)
+  {
+    lseek(dir_gpio_fd_, 0, SEEK_SET);
+    write(dir_gpio_fd_, "1", 1);   // 1 = RX / Hi-Z
+  }
 }
 
 bool PortHandlerLinux::openPort()
@@ -150,11 +211,29 @@ int PortHandlerLinux::getBytesAvailable()
 
 int PortHandlerLinux::readPort(uint8_t *packet, int length)
 {
+  setDirRx();
+ 
   return read(socket_fd_, packet, length);
 }
 
 int PortHandlerLinux::writePort(uint8_t *packet, int length)
 {
+  if(socket_fd_ == -1)
+    return -1;
+
+  setDirTx();
+
+  ssize_t written = write(socket_fd_, packet_ length); 
+  
+  if(written > 0 && baudrate_ > 0) {
+    
+    double tx_time_s = (double)written * 10.0 / (double)baudrate_;
+
+    usleep(useseconds_t)(tx_time_s * 1.2 * 1e6));
+  }
+
+  setDirRx();
+
   return write(socket_fd_, packet, length);
 }
 

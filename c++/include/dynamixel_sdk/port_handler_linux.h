@@ -34,6 +34,8 @@ namespace dynamixel
 class PortHandlerLinux : public PortHandler
 {
  private:
+  int dir_gpio_fd_;
+
   int     socket_fd_;
   int     baudrate_;
   char    port_name_[100];
@@ -41,6 +43,10 @@ class PortHandlerLinux : public PortHandler
   double  packet_start_time_;
   double  packet_timeout_;
   double  tx_time_per_byte;
+
+  void initDirGpio();
+  void setDirTx();
+  void setDirRx();
 
   bool    setupPort(const int cflag_baud);
   bool    setCustomBaudrate(int speed);
@@ -60,7 +66,13 @@ class PortHandlerLinux : public PortHandler
   /// @brief The function that closes the port
   /// @description The function calls PortHandlerLinux::closePort() to close the port.
   ////////////////////////////////////////////////////////////////////////////////
-  virtual ~PortHandlerLinux() { closePort(); }
+  virtual ~PortHandlerLinux() { 
+
+    closePort(); 
+    
+    if(dir_gpio_fd_ >= 0)
+      close(dir_gpio_fd_);
+  }
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief The function that opens the port
